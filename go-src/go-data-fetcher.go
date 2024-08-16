@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -69,22 +71,38 @@ func fetchHistoricalData(pair string, interval int, start, end time.Time) ([]OHL
 }
 
 func saveToCSV(data []OHLC, filename string) error {
+	// Ensure the directory exists
+	dir := filepath.Dir(filename)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
+
 	file, err := os.Create(filename)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create file: %v", err)
 	}
 	defer file.Close()
 
-	_, err = file.WriteString("timestamp,open,high,low,close,volume\n")
-	if err != nil {
-		return err
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	if err := writer.Write([]string{"timestamp", "open", "high", "low", "close", "volume"}); err != nil {
+		return fmt.Errorf("failed to write header: %v", err)
 	}
 
+	// Write data
 	for _, ohlc := range data {
-		_, err := file.WriteString(fmt.Sprintf("%d,%.5f,%.5f,%.5f,%.5f,%.5f\n",
-			ohlc.Time, ohlc.Open, ohlc.High, ohlc.Low, ohlc.Close, ohlc.Volume))
-		if err != nil {
-			return err
+		record := []string{
+			strconv.FormatInt(ohlc.Time, 10),
+			strconv.FormatFloat(ohlc.Open, 'f', 5, 64),
+			strconv.FormatFloat(ohlc.High, 'f', 5, 64),
+			strconv.FormatFloat(ohlc.Low, 'f', 5, 64),
+			strconv.FormatFloat(ohlc.Close, 'f', 5, 64),
+			strconv.FormatFloat(ohlc.Volume, 'f', 5, 64),
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write record: %v", err)
 		}
 	}
 
@@ -99,15 +117,16 @@ func main() {
 
 	data, err := fetchHistoricalData(pair, interval, start, end)
 	if err != nil {
-		fmt.Println("Error fetching data:", err)
+		fmt.Printf("Error fetching data: %v\n", err)
 		return
 	}
 
-	err = saveToCSV(data, "XBTUSD_daily_2023.csv")
+	filename := filepath.Join("..", "data", fmt.Sprintf("%s_daily_%d.csv", pair, start.Year()))
+	err = saveToCSV(data, filename)
 	if err != nil {
-		fmt.Println("Error saving to CSV:", err)
+		fmt.Printf("Error saving to CSV: %v\n", err)
 		return
 	}
 
-	fmt.Println("Data saved successfully")
+	fmt.Printf("Data saved successfully to %s\n", filename)
 }
